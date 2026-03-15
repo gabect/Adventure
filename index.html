@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Bosque del Niño con Palo - Versión 8.0 (Cel-Shading + Niño completo)</title>
+<title>Bosque del Niño con Palo - Versión 8.0 (Cel-Shading + Niño Completo)</title>
 <style>
   body { margin:0; overflow:hidden; background:#000; font-family:Arial, sans-serif; }
   canvas { display:block; }
@@ -16,23 +16,24 @@
 <body>
 
 <div id="ui">
-  WASD o flechas • Versión 8.0 Cel-Shading (Wind Waker style)<br>
-  - Niño completo con cuerpo, brazos, piernas, cabeza, pelo y palo<br>
-  - Piernas y brazos se mueven al caminar<br>
-  - Terreno y sombras estilo Switch<br>
-  - Cámara rolling suave
+  WASD o flechas • Versión 8.0 Cel-Shading<br>
+  - Niño completo (cuerpo, brazos, piernas, etc.)<br>
+  - Cel-shading (bordes negros, estilo Wind Waker)<br>
+  - POV rolling log como Animal Crossing Switch<br>
+  - Terreno visible, no azul vacío<br>
+  - Movimiento con animación
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/pixi.js@7/dist/pixi.min.js"></script>
 <script>
 // ================================================
-// Versión 8.0 - Niño completo + Cel-Shading
+// Versión 8.0 - Cel-Shading + Niño Completo + POV
 // ================================================
 
 const app = new PIXI.Application({
   width: window.innerWidth,
   height: window.innerHeight,
-  backgroundColor: 0x88ccff,
+  backgroundColor: 0x88ccff, // cielo comic
   antialias: true,
   resolution: window.devicePixelRatio || 1,
   autoDensity: true,
@@ -42,16 +43,8 @@ document.body.appendChild(app.view);
 
 window.addEventListener('resize', () => app.renderer.resize(window.innerWidth, window.innerHeight));
 
-// Jugador completo
-const player = {
-  x: -420,
-  y: -80,
-  size: 16,
-  speed: 3.2,
-  angle: 0,
-  walkCycle: 0,   // para animación de piernas
-  bob: 0
-};
+// Jugador (niño completo)
+const player = { x: -420, y: -80, speed: 3.2, angle: 0, walkTime: 0, legSwing: 0, armSwing: 0 };
 
 // Controles
 const keys = {};
@@ -62,91 +55,19 @@ window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 const world = new PIXI.Container();
 app.stage.addChild(world);
 
-// Filtro cel-shading (outline negro)
-const outlineFilter = new PIXI.filters.OutlineFilter(3, 0x000000, 1);
-world.filters = [outlineFilter];
+// Cel-shading filter (bordes negros, colores saturados)
+const outline = new PIXI.filters.OutlineFilter(3, 0x000000, 0.9);
+const colorMatrix = new PIXI.filters.ColorMatrixFilter();
+colorMatrix.saturate(0.4, false);
+world.filters = [outline, colorMatrix];
 
 // Cámara
 let camera = { x: 0, y: 0 };
 
 // ================================================
-// Función para dibujar el niño completo
+// Update
 // ================================================
-function drawBoy(px, py, angle, walkCycle) {
-  const boy = new PIXI.Graphics();
-
-  // SOMBRA (siempre primero)
-  boy.beginFill(0x000000, 0.25);
-  boy.drawEllipse(px + 2, py + 18, 14, 6);
-  boy.endFill();
-
-  // PIERNAS (se mueven con walkCycle)
-  const legAngle = Math.sin(walkCycle) * 0.3;
-  boy.lineStyle(5, 0x3a2a1f, 1);
-  boy.moveTo(px - 5, py + 8);
-  boy.lineTo(px - 5 + Math.sin(legAngle)*4, py + 22);
-  boy.moveTo(px + 5, py + 8);
-  boy.lineTo(px + 5 - Math.sin(legAngle)*4, py + 22);
-
-  // CUERPO (túnica verde como Link niño)
-  boy.beginFill(0x4a9c3a);
-  boy.drawRect(px - 9, py - 6, 18, 18);
-  boy.endFill();
-
-  // BRAZO IZQUIERDO
-  boy.lineStyle(4, 0xffddaa, 1);
-  boy.moveTo(px - 8, py + 2);
-  boy.lineTo(px - 18, py + 10);
-
-  // BRAZO DERECHO (sosteniendo palo)
-  boy.lineStyle(4, 0xffddaa, 1);
-  boy.moveTo(px + 8, py + 2);
-  boy.lineTo(px + 18, py + 6);
-
-  // MANO DERECHA
-  boy.beginFill(0xffddaa);
-  boy.drawCircle(px + 18, py + 6, 4);
-  boy.endFill();
-
-  // CUELLO
-  boy.beginFill(0xffddaa);
-  boy.drawRect(px - 4, py - 10, 8, 6);
-  boy.endFill();
-
-  // CABEZA
-  boy.beginFill(0xffddaa);
-  boy.drawCircle(px, py - 18, 9);
-  boy.endFill();
-
-  // PELO (estilo Wind Waker)
-  boy.beginFill(0x3a2a1f);
-  boy.drawCircle(px - 5, py - 24, 6);
-  boy.drawCircle(px + 5, py - 24, 6);
-  boy.drawCircle(px, py - 27, 7);
-  boy.endFill();
-
-  // OJOS
-  boy.beginFill(0x000000);
-  boy.drawCircle(px - 3, py - 19, 2);
-  boy.drawCircle(px + 3, py - 19, 2);
-  boy.endFill();
-
-  // PALO (madera con punta)
-  boy.lineStyle(6, 0x8b5a2b, 1);
-  boy.moveTo(px + 18, py + 6);
-  boy.lineTo(px + 18 + Math.cos(angle) * 28, py + 6 + Math.sin(angle) * 28);
-  boy.lineStyle(3, 0x3a2a1f, 1);
-  boy.moveTo(px + 18 + Math.cos(angle) * 26, py + 6 + Math.sin(angle) * 26);
-  boy.lineTo(px + 18 + Math.cos(angle) * 30, py + 6 + Math.sin(angle) * 30);
-
-  return boy;
-}
-
-// ================================================
-// Update + Render
-// ================================================
-app.ticker.add((delta) => {
-  // Movimiento
+function update(delta) {
   let dx = 0, dy = 0;
   if (keys['w'] || keys['arrowup']) dy -= 1;
   if (keys['s'] || keys['arrowdown']) dy += 1;
@@ -157,26 +78,37 @@ app.ticker.add((delta) => {
     const len = Math.hypot(dx, dy) || 1;
     dx /= len; dy /= len;
     player.angle = Math.atan2(dy, dx);
-    player.walkCycle += delta * 0.3;
+    player.walkTime += delta * 0.15;
+    player.legSwing = Math.sin(player.walkTime * 8) * 20; // piernas moviéndose
+    player.armSwing = Math.cos(player.walkTime * 8) * 15; // brazos balanceándose
+  } else {
+    player.legSwing = 0;
+    player.armSwing = 0;
   }
 
   player.x += dx * player.speed * delta;
   player.y += dy * player.speed * delta;
 
-  // Cámara rolling suave
-  camera.x += (player.x - app.screen.width / 2 - camera.x) * 0.15;
-  camera.y += (player.y - app.screen.height / 2 - camera.y) * 0.15;
+  camera.x += (player.x - app.screen.width / 2 - camera.x) * 0.12;
+  camera.y += (player.y - app.screen.height / 2 - camera.y) * 0.12;
   world.position.set(-camera.x, -camera.y);
+}
+
+// ================================================
+// Render
+// ================================================
+app.ticker.add((delta) => {
+  update(delta);
 
   world.removeChildren();
 
-  // Terreno hierba cartoon (mejorada, menos repetitiva)
   const tileSize = 32;
-  const startX = Math.floor(camera.x / tileSize) - 8;
-  const endX = Math.floor((camera.x + app.screen.width) / tileSize) + 8;
-  const startY = Math.floor(camera.y / tileSize) - 8;
-  const endY = Math.floor((camera.y + app.screen.height) / tileSize) + 8;
+  const startX = Math.floor(camera.x / tileSize) - 6;
+  const endX = Math.floor((camera.x + app.screen.width) / tileSize) + 6;
+  const startY = Math.floor(camera.y / tileSize) - 6;
+  const endY = Math.floor((camera.y + app.screen.height) / tileSize) + 6;
 
+  // Terreno (verde con hierba, visible siempre)
   for (let tx = startX; tx <= endX; tx++) {
     for (let ty = startY; ty <= endY; ty++) {
       const wx = tx * tileSize;
@@ -185,30 +117,124 @@ app.ticker.add((delta) => {
       grass.beginFill(0x7ac142);
       grass.drawRect(wx, wy, tileSize, tileSize);
       grass.endFill();
-      grass.lineStyle(2, 0x5aa832, 0.6);
-      for (let i = 0; i < 6; i++) {
-        const ox = wx + 4 + i*4;
-        const oy = wy + 8 + Math.random()*16;
+
+      grass.lineStyle(1.5, 0x5aa832, 0.7);
+      for (let i = 0; i < 5; i++) {
+        const ox = wx + Math.random() * tileSize;
+        const oy = wy + Math.random() * tileSize;
         grass.moveTo(ox, oy);
-        grass.lineTo(ox + (Math.random()-0.5)*6, oy - 14);
+        grass.lineTo(ox + (Math.random()-0.5)*4, oy - 10 - Math.random()*8);
       }
       world.addChild(grass);
     }
   }
 
-  // Árbol y casa de ejemplo
+  // Árbol cartoon
   const tree = new PIXI.Graphics();
-  tree.beginFill(0x5a3f2a); tree.drawRect(-1400, -1350, 20, 50); tree.endFill();
-  tree.beginFill(0x3a6a3a);
-  tree.drawCircle(-1400, -1350 - 35, 32);
-  tree.drawCircle(-1400 - 18, -1350 - 48, 24);
-  tree.drawCircle(-1400 + 18, -1350 - 42, 26);
+  tree.beginFill(0x5a3f2a);
+  tree.drawRect(-1400 - 10, -1350 - 10, 20, 50);
   tree.endFill();
+  tree.beginFill(0x3a6a3a);
+  tree.drawCircle(-1400, -1350 - 40, 30);
+  tree.drawCircle(-1400 - 15, -1350 - 55, 25);
+  tree.drawCircle(-1400 + 15, -1350 - 50, 28);
+  tree.endFill();
+  tree.scale.set(1, 1 + ( -1350 - camera.y ) * 0.0001); // POV tilt simulado (escala por Y)
   world.addChild(tree);
 
-  // Niño completo
-  const boyGfx = drawBoy(player.x, player.y, player.angle, player.walkCycle);
-  world.addChild(boyGfx);
+  // Puente
+  const bridge = new PIXI.Graphics();
+  bridge.beginFill(0x8b5a2b);
+  bridge.drawRoundedRect(750, 650, 140, 60, 6);
+  bridge.endFill();
+  bridge.lineStyle(3, 0x5c3f1f, 0.8);
+  for (let i = 0; i < 5; i++) {
+    bridge.moveTo(750, 650 + i * 12);
+    bridge.lineTo(890, 650 + i * 12);
+  }
+  bridge.scale.set(1, 1 + ( 650 - camera.y ) * 0.0001); // POV
+  world.addChild(bridge);
+
+  // Casa
+  const house = new PIXI.Graphics();
+  house.beginFill(0x8b4513);
+  house.drawRect(-600, -300, 60, 40);
+  house.endFill();
+  house.beginFill(0xa0522d);
+  house.moveTo(-630, -300);
+  house.lineTo(-600, -360);
+  house.lineTo(-540, -300);
+  house.endFill();
+  house.lineStyle(2, 0x000000, 1);
+  house.drawRect(-585, -290, 15, 20); // puerta
+  house.scale.set(1, 1 + ( -300 - camera.y ) * 0.0001); // POV
+  world.addChild(house);
+
+  // Jugador (niño completo)
+  const playerGfx = new PIXI.Graphics();
+
+  // Sombras
+  playerGfx.beginFill(0x000000, 0.3);
+  playerGfx.drawEllipse(player.x, player.y + 20, 12, 6); // sombra pies
+  playerGfx.endFill();
+
+  // Piernas
+  playerGfx.lineStyle(4, 0x8b4513, 1);
+  playerGfx.moveTo(player.x - 5, player.y + 10);
+  playerGfx.lineTo(player.x - 5 - player.legSwing * 0.1, player.y + 25);
+  playerGfx.moveTo(player.x + 5, player.y + 10);
+  playerGfx.lineTo(player.x + 5 + player.legSwing * 0.1, player.y + 25);
+  playerGfx.beginFill(0x5a3f2a);
+  playerGfx.drawCircle(player.x - 5 - player.legSwing * 0.1, player.y + 25, 4); // pies
+  playerGfx.drawCircle(player.x + 5 + player.legSwing * 0.1, player.y + 25, 4);
+  playerGfx.endFill();
+
+  // Cuerpo
+  playerGfx.beginFill(0xffddaa);
+  playerGfx.drawEllipse(player.x, player.y + 5, 12, 18); // torso
+  playerGfx.endFill();
+
+  // Brazos
+  playerGfx.lineStyle(3, 0xffddaa, 1);
+  playerGfx.moveTo(player.x - 10, player.y + 5);
+  playerGfx.lineTo(player.x - 15 - player.armSwing * 0.1, player.y + 15);
+  playerGfx.moveTo(player.x + 10, player.y + 5);
+  playerGfx.lineTo(player.x + 15 + player.armSwing * 0.1, player.y + 15);
+  playerGfx.beginFill(0xffddaa);
+  playerGfx.drawCircle(player.x - 15 - player.armSwing * 0.1, player.y + 15, 3); // manos
+  playerGfx.drawCircle(player.x + 15 + player.armSwing * 0.1, player.y + 15, 3);
+  playerGfx.endFill();
+
+  // Cuello
+  playerGfx.beginFill(0xffd4aa);
+  playerGfx.drawRect(player.x - 3, player.y - 5, 6, 5);
+  playerGfx.endFill();
+
+  // Cabeza
+  playerGfx.beginFill(0xffd4aa);
+  playerGfx.drawCircle(player.x, player.y - 10, 10);
+  playerGfx.endFill();
+
+  // Pelo (spikes cartoon)
+  playerGfx.lineStyle(2, 0x8b5a2b, 1);
+  for (let i = 0; i < 5; i++) {
+    const a = i * (Math.PI * 2 / 5) + Math.PI / 2;
+    playerGfx.moveTo(player.x + Math.cos(a) * 10, player.y - 10 + Math.sin(a) * 10);
+    playerGfx.lineTo(player.x + Math.cos(a) * 15, player.y - 10 + Math.sin(a) * 15);
+  }
+
+  // Ojos
+  playerGfx.beginFill(0x000000);
+  playerGfx.drawCircle(player.x - 4, player.y - 12, 2);
+  playerGfx.drawCircle(player.x + 4, player.y - 12, 2);
+  playerGfx.endFill();
+
+  // Palo en mano derecha
+  playerGfx.lineStyle(5, 0x8b5a2b, 1);
+  playerGfx.moveTo(player.x + 15 + player.armSwing * 0.1, player.y + 15);
+  playerGfx.lineTo(player.x + 15 + Math.cos(player.angle) * player.stickLength, player.y + 15 + Math.sin(player.angle) * player.stickLength);
+
+  world.addChild(playerGfx);
 });
 </script>
 </body>
