@@ -2,27 +2,24 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gabriel's Adventure - Rolling Log Prototype</title>
+    <title>Gabriel's RPG - Rolling World</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background: #222; font-family: sans-serif; }
-        canvas { display: block; margin: 0 auto; }
-        #ui { position: absolute; top: 10px; left: 10px; color: white; pointer-events: none; text-shadow: 2px 2px 0 #000; }
+        body { margin: 0; overflow: hidden; background: #87ceeb; } /* Cielo azul de fondo */
+        #ui { position: absolute; top: 10px; left: 10px; color: white; pointer-events: none; font-family: 'Segoe UI', sans-serif; }
     </style>
 </head>
 <body>
     <div id="ui">
-        <h1>Bosque de Gabriel</h1>
-        <p>Usa WASD o Flechas para caminar | Prototipo Procedural</p>
+        <h2>Prototipo: Colisiones y Horizonte</h2>
+        <p>Camina hacia los árboles para probar la colisión.</p>
     </div>
 
 <script>
-// --- CONFIGURACIÓN ---
 const app = new PIXI.Application({
     width: window.innerWidth,
     height: window.innerHeight,
-    backgroundColor: 0x3a9d23, // Verde hierba base
+    backgroundColor: 0x3a9d23,
     antialias: true
 });
 document.body.appendChild(app.view);
@@ -30,28 +27,21 @@ document.body.appendChild(app.view);
 const world = new PIXI.Container();
 app.stage.addChild(world);
 
-// --- VARIABLES DE ESTADO ---
+// --- CONFIGURACIÓN DE MUNDO ---
+const worldSize = 2000;
+const trees = [];
 const keys = {};
-const entities = [];
-const worldSize = 3000;
 
-// --- UTILS: CEL SHADING DRAWING ---
-function drawCelShape(graphics, color, points, border = 3) {
-    graphics.lineStyle(border, 0x000000, 1);
-    graphics.beginFill(color);
-    graphics.drawPolygon(points);
-    graphics.endFill();
-}
-
-// --- CLASE PERSONAJE (EL NIÑO) ---
+// --- PERSONAJE ---
 class Player {
     constructor() {
         this.container = new PIXI.Container();
-        this.bodyParts = new PIXI.Graphics();
-        this.container.addChild(this.bodyParts);
+        this.view = new PIXI.Graphics();
+        this.container.addChild(this.view);
         
         this.x = worldSize / 2;
         this.y = worldSize / 2;
+        this.radius = 12; // Radio de colisión
         this.speed = 4;
         this.walkTimer = 0;
         
@@ -59,91 +49,93 @@ class Player {
     }
 
     update(dt) {
-        let mvX = 0; let mvY = 0;
-        if (keys['w'] || keys['ArrowUp']) mvY -= 1;
-        if (keys['s'] || keys['ArrowDown']) mvY += 1;
-        if (keys['a'] || keys['ArrowLeft']) mvX -= 1;
-        if (keys['d'] || keys['ArrowRight']) mvX += 1;
+        let nextX = this.x;
+        let nextY = this.y;
+        let moving = false;
 
-        if (mvX !== 0 || mvY !== 0) {
-            this.x += mvX * this.speed;
-            this.y += mvY * this.speed;
-            this.walkTimer += 0.2;
-        } else {
-            this.walkTimer *= 0.8; // Idle smooth
+        if (keys['w'] || keys['ArrowUp']) { nextY -= this.speed; moving = true; }
+        if (keys['s'] || keys['ArrowDown']) { nextY += this.speed; moving = true; }
+        if (keys['a'] || keys['ArrowLeft']) { nextX -= this.speed; moving = true; }
+        if (keys['d'] || keys['ArrowRight']) { nextX += this.speed; moving = true; }
+
+        // --- SISTEMA DE COLISIONES ---
+        // Solo actualizamos posición si no hay choque
+        if (!this.checkCollision(nextX, nextY)) {
+            this.x = nextX;
+            this.y = nextY;
         }
+
+        if (moving) this.walkTimer += 0.2;
+        else this.walkTimer *= 0.8;
 
         this.draw();
         
-        // Depth Sorting & Rolling Log Logic
+        // Rolling Log Perspective
         this.container.x = this.x;
         this.container.y = this.y;
         
-        // Efecto Rolling: escala sutil según posición Y en pantalla
-        const screenY = this.y - camera.y;
-        const scale = 0.8 + (screenY / app.screen.height) * 0.4;
-        this.container.scale.set(scale);
+        // Efecto Animal Crossing: Objetos más pequeños arriba (lejos)
+        const relativeY = (this.y - camera.y) / app.screen.height;
+        const scale = 0.6 + (relativeY * 0.6); 
+        this.container.scale.set(Math.max(0.5, scale));
+        
         this.container.zIndex = this.y;
     }
 
+    checkCollision(nx, ny) {
+        for (let tree of trees) {
+            const dx = nx - tree.x;
+            const dy = ny - tree.y; // Colisión en la base del tronco
+            const distance = Math.sqrt(dx*dx + dy*dy);
+            if (distance < this.radius + 15) return true; // 15 es el grosor del tronco
+        }
+        return false;
+    }
+
     draw() {
-        const g = this.bodyParts;
+        const g = this.view;
         g.clear();
         const t = this.walkTimer;
-        const bob = Math.sin(t * 2) * 3;
+        const b = Math.sin(t * 2) * 2;
 
-        // Sombras pies
-        g.beginFill(0x000000, 0.2);
-        g.drawEllipse(0, 10, 15, 8);
+        // Sombras (Cel-shaded)
+        g.beginFill(0x000000, 0.15);
+        g.drawEllipse(0, 5, 15, 7);
         g.endFill();
 
-        // Piernas (Movimiento)
-        const legL = Math.sin(t) * 10;
-        const legR = Math.cos(t) * 10;
-        g.lineStyle(4, 0x000000); // Bordes negros cel-shade
-        g.moveTo(-5, 0); g.lineTo(-5 + legL, 15); // Pierna L
-        g.moveTo(5, 0); g.lineTo(5 + legR, 15);  // Pierna R
-
-        // Cuerpo (Óvalo)
+        // Personaje (Simplified Cel-shaded)
         g.lineStyle(3, 0x000000);
-        g.beginFill(0xffcc00); // Túnica amarilla estilo retro
-        g.drawEllipse(0, -10 + bob, 12, 16);
+        g.beginFill(0xffcc00); // Túnica
+        g.drawEllipse(0, -10 + b, 12, 15);
+        g.endFill();
+        
+        g.beginFill(0xffdbac); // Cabeza
+        g.drawCircle(0, -32 + b, 10);
         g.endFill();
 
-        // Cabeza (Círculo)
-        g.beginFill(0xffdbac);
-        g.drawCircle(0, -35 + bob, 10);
-        g.endFill();
-
-        // Pelo Spiky
-        g.beginFill(0x442200);
-        g.drawPolygon([-10, -40+bob, 0, -50+bob, 10, -40+bob]);
-        g.endFill();
-
-        // Palo (Mano Derecha)
-        const armSwing = Math.cos(t) * 5;
+        // Palo
         g.lineStyle(4, 0x5d4037);
-        g.moveTo(10, -10 + bob);
-        g.lineTo(20 + armSwing, -25 + bob);
+        g.moveTo(10, -10 + b);
+        g.lineTo(20, -20 + Math.cos(t)*5);
     }
 }
 
-// --- ENTORNO: ÁRBOLES PROCEDURALES ---
+// --- GENERACIÓN DE ÁRBOLES CON HORIZONTE ---
 function createTree(x, y) {
     const tree = new PIXI.Container();
     const g = new PIXI.Graphics();
     
     // Tronco
     g.lineStyle(3, 0x000000);
-    g.beginFill(0x4e342e);
-    g.drawRect(-10, -20, 20, 40);
+    g.beginFill(0x5d4037);
+    g.drawRect(-10, -15, 20, 30);
     g.endFill();
 
-    // Copa (Nubes verdes)
-    g.beginFill(0x2e7d32);
-    g.drawCircle(0, -40, 25);
-    g.drawCircle(-20, -30, 20);
-    g.drawCircle(20, -30, 20);
+    // Copa
+    g.beginFill(0x2d5a27);
+    g.drawCircle(0, -35, 25);
+    g.drawCircle(-15, -25, 20);
+    g.drawCircle(15, -25, 20);
     g.endFill();
 
     tree.addChild(g);
@@ -151,43 +143,43 @@ function createTree(x, y) {
     tree.y = y;
     tree.zIndex = y;
     world.addChild(tree);
-    entities.push({ container: tree, type: 'tree' });
+    trees.push(tree);
 }
 
-// --- INICIALIZACIÓN ---
-const player = new Player();
-const camera = { x: 0, y: 0 };
-
-// Generar bosque aleatorio
-for(let i=0; i<60; i++) {
+// Llenar el mundo
+for(let i=0; i<80; i++) {
     createTree(Math.random() * worldSize, Math.random() * worldSize);
 }
 
-// --- BUCLE DE JUEGO ---
-app.ticker.add((delta) => {
-    player.update(delta);
+const player = new Player();
+const camera = { x: 0, y: 0 };
 
-    // Cámara "Rolling" con Easing
-    const targetX = player.x - app.screen.width / 2;
-    const targetY = player.y - app.screen.height * 0.7; // Offset para ver más hacia arriba
-    camera.x += (targetX - camera.x) * 0.1;
-    camera.y += (targetY - camera.y) * 0.1;
+// --- LOOP PRINCIPAL ---
+app.ticker.add(() => {
+    player.update();
+
+    // Cámara con suavizado
+    camera.x += (player.x - app.screen.width/2 - camera.x) * 0.1;
+    camera.y += (player.y - app.screen.height/1.5 - camera.y) * 0.05;
 
     world.x = -camera.x;
     world.y = -camera.y;
 
-    // Ordenar profundidad para que el niño pase por delante/detrás
+    // "Fog" de Horizonte: Desvanecer objetos muy lejanos en Y
+    world.children.forEach(child => {
+        const screenY = child.y - camera.y;
+        if (screenY < 100) { // El "borde" del mundo curvo
+            child.alpha = Math.max(0, (screenY) / 100);
+        } else {
+            child.alpha = 1;
+        }
+    });
+
     world.children.sort((a, b) => a.zIndex - b.zIndex);
 });
 
-// Eventos de teclado
 window.onkeydown = e => keys[e.key] = true;
 window.onkeyup = e => keys[e.key] = false;
-
-// Ajuste ventana
-window.onresize = () => {
-    app.renderer.resize(window.innerWidth, window.innerHeight);
-};
 </script>
 </body>
 </html>
