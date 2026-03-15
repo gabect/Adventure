@@ -2,180 +2,171 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Gabriel's RPG - Rolling World</title>
+    <title>Gabriel's RPG - Real Rolling Log</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.3.2/pixi.min.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background: #87ceeb; } /* Cielo azul de fondo */
-        #ui { position: absolute; top: 10px; left: 10px; color: white; pointer-events: none; font-family: 'Segoe UI', sans-serif; }
+        body { margin: 0; overflow: hidden; background: #4ca1af; } /* Color del cielo */
+        #ui { position: absolute; top: 10px; left: 10px; color: white; pointer-events: none; font-family: 'Arial', sans-serif; text-shadow: 2px 2px #000; }
     </style>
 </head>
 <body>
     <div id="ui">
-        <h2>Prototipo: Colisiones y Horizonte</h2>
-        <p>Camina hacia los árboles para probar la colisión.</p>
+        <h2>Efecto Rolling Log (Curvatura Proyectada)</h2>
+        <p>Mueve al niño hacia arriba para ver cómo el mundo se curva al horizonte.</p>
     </div>
 
 <script>
+// --- SHADER DE CURVATURA (EL TRUCO MÁGICO) ---
+// Este shader de Pixi manipula los vértices para curvar el mundo hacia atrás.
+const rollingVert = `
+    attribute vec2 aVertexPosition;
+    attribute vec2 aTextureCoord;
+    uniform mat3 projectionMatrix;
+    varying vec2 vTextureCoord;
+
+    uniform float uCurvature;
+    uniform float uViewY;
+
+    void main(void) {
+        vTextureCoord = aTextureCoord;
+        vec2 pos = aVertexPosition;
+        
+        // El truco: Aumentamos el desplazamiento en Y basado en la distancia al centro de la cámara
+        // Esto crea la ilusión de que el suelo se cae hacia el horizonte
+        float dist = pos.y - uViewY;
+        if(dist < 0.0) {
+            pos.y += pow(abs(dist) * 0.05, 2.0) * uCurvature;
+        }
+
+        gl_Position = vec4((projectionMatrix * vec3(pos, 1.0)).xy, 0.0, 1.0);
+    }
+`;
+
 const app = new PIXI.Application({
     width: window.innerWidth,
     height: window.innerHeight,
-    backgroundColor: 0x3a9d23,
+    backgroundColor: 0x3a9d23, 
     antialias: true
 });
 document.body.appendChild(app.view);
 
 const world = new PIXI.Container();
+// Aplicamos un filtro de desplazamiento para el efecto visual
+const rollingFilter = new PIXI.Filter(null, null, {
+    uCurvature: 1.5,
+    uViewY: 0
+});
+// Nota: En PIXI 7 puro, los filtros de malla son más complejos, 
+// usaremos una aproximación de escala/posición matemática para el "Rolling" 
+// que sea compatible con GitHub Pages sin errores de compilación de shader pesados.
+
+const gameLayer = new PIXI.Container();
+world.addChild(gameLayer);
 app.stage.addChild(world);
 
-// --- CONFIGURACIÓN DE MUNDO ---
-const worldSize = 2000;
+const worldSize = 4000;
 const trees = [];
 const keys = {};
 
-// --- PERSONAJE ---
+// --- DIBUJADO DE HIERBA PROCEDURAL ---
+const grassGfx = new PIXI.Graphics();
+for(let i=0; i<1000; i++) {
+    grassGfx.lineStyle(2, 0x2e7d32, 0.5);
+    let gx = Math.random() * worldSize;
+    let gy = Math.random() * worldSize;
+    grassGfx.moveTo(gx, gy);
+    grassGfx.lineTo(gx + (Math.random()-0.5)*5, gy - 5 - Math.random()*5);
+}
+gameLayer.addChild(grassGfx);
+
 class Player {
     constructor() {
-        this.container = new PIXI.Container();
-        this.view = new PIXI.Graphics();
-        this.container.addChild(this.view);
-        
-        this.x = worldSize / 2;
-        this.y = worldSize / 2;
-        this.radius = 12; // Radio de colisión
-        this.speed = 4;
+        this.cont = new PIXI.Container();
+        this.gfx = new PIXI.Graphics();
+        this.cont.addChild(this.gfx);
+        this.x = worldSize/2;
+        this.y = worldSize/2;
+        this.speed = 5;
         this.walkTimer = 0;
-        
-        world.addChild(this.container);
+        gameLayer.addChild(this.cont);
     }
 
-    update(dt) {
-        let nextX = this.x;
-        let nextY = this.y;
+    update() {
+        let nx = this.x, ny = this.y;
         let moving = false;
+        if(keys['w'] || keys['ArrowUp']) { ny -= this.speed; moving = true; }
+        if(keys['s'] || keys['ArrowDown']) { ny += this.speed; moving = true; }
+        if(keys['a'] || keys['ArrowLeft']) { nx -= this.speed; moving = true; }
+        if(keys['d'] || keys['ArrowRight']) { nx += this.speed; moving = true; }
 
-        if (keys['w'] || keys['ArrowUp']) { nextY -= this.speed; moving = true; }
-        if (keys['s'] || keys['ArrowDown']) { nextY += this.speed; moving = true; }
-        if (keys['a'] || keys['ArrowLeft']) { nextX -= this.speed; moving = true; }
-        if (keys['d'] || keys['ArrowRight']) { nextX += this.speed; moving = true; }
-
-        // --- SISTEMA DE COLISIONES ---
-        // Solo actualizamos posición si no hay choque
-        if (!this.checkCollision(nextX, nextY)) {
-            this.x = nextX;
-            this.y = nextY;
+        // Colisión sólida
+        let hit = false;
+        for(let t of trees) {
+            const dx = nx - t.x;
+            const dy = ny - t.y;
+            if(Math.sqrt(dx*dx + dy*dy) < 25) { hit = true; break; }
         }
+        if(!hit) { this.x = nx; this.y = ny; }
 
-        if (moving) this.walkTimer += 0.2;
-        else this.walkTimer *= 0.8;
-
+        if(moving) this.walkTimer += 0.2;
         this.draw();
         
-        // Rolling Log Perspective
-        this.container.x = this.x;
-        this.container.y = this.y;
-        
-        // Efecto Animal Crossing: Objetos más pequeños arriba (lejos)
-        const relativeY = (this.y - camera.y) / app.screen.height;
-        const scale = 0.6 + (relativeY * 0.6); 
-        this.container.scale.set(Math.max(0.5, scale));
-        
-        this.container.zIndex = this.y;
-    }
-
-    checkCollision(nx, ny) {
-        for (let tree of trees) {
-            const dx = nx - tree.x;
-            const dy = ny - tree.y; // Colisión en la base del tronco
-            const distance = Math.sqrt(dx*dx + dy*dy);
-            if (distance < this.radius + 15) return true; // 15 es el grosor del tronco
-        }
-        return false;
+        this.cont.x = this.x;
+        this.cont.y = this.y;
+        this.cont.zIndex = this.y;
     }
 
     draw() {
-        const g = this.view;
-        g.clear();
-        const t = this.walkTimer;
-        const b = Math.sin(t * 2) * 2;
-
-        // Sombras (Cel-shaded)
-        g.beginFill(0x000000, 0.15);
-        g.drawEllipse(0, 5, 15, 7);
-        g.endFill();
-
-        // Personaje (Simplified Cel-shaded)
-        g.lineStyle(3, 0x000000);
-        g.beginFill(0xffcc00); // Túnica
-        g.drawEllipse(0, -10 + b, 12, 15);
-        g.endFill();
-        
-        g.beginFill(0xffdbac); // Cabeza
-        g.drawCircle(0, -32 + b, 10);
-        g.endFill();
-
-        // Palo
-        g.lineStyle(4, 0x5d4037);
-        g.moveTo(10, -10 + b);
-        g.lineTo(20, -20 + Math.cos(t)*5);
+        const g = this.gfx; g.clear();
+        const b = Math.sin(this.walkTimer*2)*2;
+        // Cel-shading Niño
+        g.lineStyle(3, 0).beginFill(0xffcc00).drawEllipse(0,-10+b, 12, 15).endFill(); // Cuerpo
+        g.beginFill(0xffdbac).drawCircle(0,-32+b, 10).endFill(); // Cabeza
+        g.lineStyle(4, 0x5d4037).moveTo(10,-10+b).lineTo(20,-20+Math.cos(this.walkTimer)*5); // Palo
     }
 }
 
-// --- GENERACIÓN DE ÁRBOLES CON HORIZONTE ---
 function createTree(x, y) {
-    const tree = new PIXI.Container();
-    const g = new PIXI.Graphics();
-    
-    // Tronco
-    g.lineStyle(3, 0x000000);
-    g.beginFill(0x5d4037);
-    g.drawRect(-10, -15, 20, 30);
-    g.endFill();
-
-    // Copa
-    g.beginFill(0x2d5a27);
-    g.drawCircle(0, -35, 25);
-    g.drawCircle(-15, -25, 20);
-    g.drawCircle(15, -25, 20);
-    g.endFill();
-
-    tree.addChild(g);
-    tree.x = x;
-    tree.y = y;
-    tree.zIndex = y;
-    world.addChild(tree);
-    trees.push(tree);
+    const t = new PIXI.Graphics();
+    t.lineStyle(3, 0).beginFill(0x5d4037).drawRect(-10, -15, 20, 30).endFill(); // Tronco
+    t.beginFill(0x2d5a27).drawCircle(0, -40, 30).drawCircle(-20,-30,20).drawCircle(20,-30,20).endFill(); // Copa
+    t.x = x; t.y = y; t.zIndex = y;
+    gameLayer.addChild(t);
+    trees.push(t);
 }
 
-// Llenar el mundo
-for(let i=0; i<80; i++) {
-    createTree(Math.random() * worldSize, Math.random() * worldSize);
-}
-
+for(let i=0; i<150; i++) createTree(Math.random()*worldSize, Math.random()*worldSize);
 const player = new Player();
-const camera = { x: 0, y: 0 };
+const cam = { x: 0, y: 0 };
 
-// --- LOOP PRINCIPAL ---
 app.ticker.add(() => {
     player.update();
+    
+    cam.x += (player.x - app.screen.width/2 - cam.x) * 0.1;
+    cam.y += (player.y - app.screen.height/1.5 - cam.y) * 0.05;
 
-    // Cámara con suavizado
-    camera.x += (player.x - app.screen.width/2 - camera.x) * 0.1;
-    camera.y += (player.y - app.screen.height/1.5 - camera.y) * 0.05;
+    gameLayer.x = -cam.x;
+    gameLayer.y = -cam.y;
 
-    world.x = -camera.x;
-    world.y = -camera.y;
-
-    // "Fog" de Horizonte: Desvanecer objetos muy lejanos en Y
-    world.children.forEach(child => {
-        const screenY = child.y - camera.y;
-        if (screenY < 100) { // El "borde" del mundo curvo
-            child.alpha = Math.max(0, (screenY) / 100);
+    // --- LÓGICA DE CURVATURA "ROLLING LOG" ---
+    gameLayer.children.forEach(c => {
+        const relY = c.y - cam.y;
+        // Simulamos la curvatura del barril:
+        // A medida que relY disminuye (se aleja hacia arriba), los objetos se hunden y se achican
+        if(relY < 400) { 
+            const curve = Math.pow((400 - relY) * 0.05, 2.5);
+            c.pivot.y = -curve; // Los empuja "hacia abajo" visualmente
+            const s = Math.max(0, 1 - (400 - relY) * 0.002);
+            c.scale.set(s);
+            c.alpha = s > 0.2 ? 1 : (s * 5); // Desvanecer en el horizonte
         } else {
-            child.alpha = 1;
+            c.pivot.y = 0;
+            c.scale.set(1);
+            c.alpha = 1;
         }
     });
 
-    world.children.sort((a, b) => a.zIndex - b.zIndex);
+    gameLayer.children.sort((a,b) => a.zIndex - b.zIndex);
 });
 
 window.onkeydown = e => keys[e.key] = true;
