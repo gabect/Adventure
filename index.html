@@ -2,18 +2,18 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Gabriel's RPG - Fix Controles y Puente</title>
+    <title>Gabriel's RPG - Fix de Perspectiva y Límites</title>
     <style>
         body { margin: 0; overflow: hidden; background: #87ceeb; font-family: 'Arial', sans-serif; }
-        #ui { position: absolute; top: 20px; left: 20px; color: #2c3e50; pointer-events: none; background: rgba(255,255,255,0.9); padding: 15px; border-radius: 8px; border: 3px solid #000; box-shadow: 5px 5px 0px rgba(0,0,0,0.2); }
-        kbd { background: #eee; border: 1px solid #333; padding: 2px 4px; border-radius: 4px; font-weight: bold; }
+        #ui { position: absolute; top: 20px; left: 20px; color: #2c3e50; pointer-events: none; background: rgba(255,255,255,0.9); padding: 15px; border-radius: 8px; border: 3px solid #000; z-index: 100; }
     </style>
 </head>
 <body>
     <div id="ui">
-        <b>Gabriel's Adventure</b><br>
-        Mover: <kbd>WASD</kbd> o <kbd>Flechas</kbd><br>
-        <small>Haz clic en la pantalla si no se mueve.</small>
+        <b>Corrección de Mundo V0.3</b><br>
+        - Puente anclado a la curvatura<br>
+        - Límites de mapa activos<br>
+        - Sombreado de lomas mejorado
     </div>
 
     <script type="importmap">
@@ -27,160 +27,176 @@
 <script type="module">
 import * as THREE from 'three';
 
-// --- SHADERS (Rolling Log + Cel Shading) ---
+// --- CONFIGURACIÓN GLOBAL ---
+const CURVATURA = 0.0007;
+const WORLD_WIDTH = 300;
+const WORLD_DEPTH = 600;
+
+// --- SHADERS CORREGIDOS ---
 const rollingVS = `
     uniform float uCurvature;
-    varying vec2 vUv;
     varying vec3 vNormal;
-    varying float vWorldY;
+    varying vec3 vWorldPos;
 
     void main() {
-        vUv = uv;
         vNormal = normal;
-        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-        vWorldY = worldPosition.y;
-
-        float distZ = worldPosition.z - cameraPosition.z;
-        worldPosition.y -= pow(distZ, 2.0) * uCurvature;
+        vec4 worldPos = modelMatrix * vec4(position, 1.0);
         
-        gl_Position = projectionMatrix * viewMatrix * worldPosition;
+        // El secreto: Todos los objetos (suelo y puente) usan esta misma deformación
+        float distZ = worldPos.z - cameraPosition.z;
+        worldPos.y -= pow(distZ, 2.0) * uCurvature;
+        
+        vWorldPos = worldPos.xyz;
+        gl_Position = projectionMatrix * viewMatrix * worldPos;
     }
 `;
 
+const terrainFS = `
+    varying vec3 vNormal;
+    varying vec3 vWorldPos;
+    void main() {
+        // Color base según altura
+        vec3 green = vec3(0.2, 0.7, 0.1);
+        vec3 darkGreen = vec3(0.1, 0.5, 0.1);
+        
+        // Sombreado por pendiente (para ver las lomas)
+        float slope = 1.0 - vNormal.y; 
+        vec3 color = mix(green, darkGreen, slope);
+        
+        // Añadir "líneas de contorno" cartoon para profundidad visual
+        float grid = sin(vWorldPos.x * 0.5) * sin(vWorldPos.z * 0.5);
+        if(grid > 0.98) color *= 0.9;
+
+        float light = dot(vNormal, vec3(0.5, 1.0, 0.5));
+        gl_FragColor = vec4(color * (light > 0.6 ? 1.0 : 0.8), 1.0);
+    }
+`;
+
+// --- ESCENA ---
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(0, 35, 50);
+camera.position.set(0, 40, 60);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-const clock = new THREE.Clock();
-
-// --- SISTEMA DE CONTROLES CORREGIDO ---
-const keys = {};
-window.addEventListener('keydown', (e) => { 
-    keys[e.key.toLowerCase()] = true; 
-    keys[e.code] = true; // Soporte para ArrowUp, ArrowDown, etc.
-});
-window.addEventListener('keyup', (e) => { 
-    keys[e.key.toLowerCase()] = false; 
-    keys[e.code] = false; 
-});
-
-// --- TERRENO CON RÍO ---
-const terrainGeo = new THREE.PlaneGeometry(300, 600, 100, 100);
+// --- TERRENO ---
+const terrainGeo = new THREE.PlaneGeometry(WORLD_WIDTH, WORLD_DEPTH, 120, 120);
 terrainGeo.rotateX(-Math.PI / 2);
 
-const vertices = terrainGeo.attributes.position.array;
-for(let i = 0; i < vertices.length; i += 3) {
-    let x = vertices[i];
-    let z = vertices[i+2];
-    if (Math.abs(x) < 18) {
-        vertices[i+1] = -4; // Cauce del río
+const posAttr = terrainGeo.attributes.position;
+for(let i = 0; i < posAttr.count; i++) {
+    let x = posAttr.getX(i);
+    let z = posAttr.getZ(i);
+    if (Math.abs(x) < 20) {
+        posAttr.setY(i, -5); // Río
     } else {
-        vertices[i+1] = Math.sin(x * 0.08) * Math.cos(z * 0.08) * 4; // Lomas
+        // Lomas más pronunciadas para ver el relieve
+        posAttr.setY(i, Math.sin(x * 0.1) * Math.cos(z * 0.1) * 5);
     }
 }
 terrainGeo.computeVertexNormals();
 
 const terrainMat = new THREE.ShaderMaterial({
-    uniforms: { uCurvature: { value: 0.0006 } },
+    uniforms: { uCurvature: { value: CURVATURA } },
     vertexShader: rollingVS,
-    fragmentShader: `
-        varying float vWorldY;
-        varying vec3 vNormal;
-        void main() {
-            vec3 color = vWorldY > -1.0 ? vec3(0.4, 0.8, 0.2) : vec3(0.7, 0.6, 0.4);
-            float shade = dot(vNormal, vec3(0, 1, 0.5)) > 0.5 ? 1.0 : 0.7;
-            gl_FragColor = vec4(color * shade, 1.0);
-        }
-    `
+    fragmentShader: terrainFS
 });
 const terrain = new THREE.Mesh(terrainGeo, terrainMat);
 scene.add(terrain);
 
-// --- AGUA ANIMADA ---
+// --- RÍO (AZUL REAL) ---
 const waterMat = new THREE.ShaderMaterial({
-    uniforms: { uCurvature: { value: 0.0006 }, uTime: { value: 0 } },
+    uniforms: { uCurvature: { value: CURVATURA }, uTime: { value: 0 } },
     vertexShader: rollingVS,
     fragmentShader: `
         uniform float uTime;
-        varying vec2 vUv;
+        varying vec3 vWorldPos;
         void main() {
-            float pulse = sin(vUv.y * 50.0 + uTime * 5.0);
-            vec3 color = pulse > 0.8 ? vec3(1.0) : vec3(0.1, 0.5, 0.9);
-            gl_FragColor = vec4(color, 0.7);
+            float wave = sin(vWorldPos.z * 0.2 + uTime * 3.0);
+            vec3 color = mix(vec3(0.0, 0.3, 0.8), vec3(0.5, 0.9, 1.0), wave * 0.5 + 0.5);
+            gl_FragColor = vec4(color, 0.8);
         }
     `,
     transparent: true
 });
-const water = new THREE.Mesh(new THREE.PlaneGeometry(36, 600), waterMat);
+const water = new THREE.Mesh(new THREE.PlaneGeometry(40, WORLD_DEPTH), waterMat);
 water.rotateX(-Math.PI / 2);
-water.position.y = -3;
+water.position.y = -4.5;
 scene.add(water);
 
-// --- PUENTE DE MADERA ---
-const bridge = new THREE.Group();
-const woodMat = new THREE.MeshBasicMaterial({ color: 0x5d4037 });
-for(let i = -10; i < 10; i++) {
-    const plank = new THREE.Mesh(new THREE.BoxGeometry(40, 0.5, 2), woodMat);
-    plank.position.z = i * 2.5;
-    bridge.add(plank);
+// --- PUENTE (AHORA USA EL SHADER DE CURVATURA) ---
+const bridgeGroup = new THREE.Group();
+const bridgeMat = new THREE.ShaderMaterial({
+    uniforms: { uCurvature: { value: CURVATURA } },
+    vertexShader: rollingVS,
+    fragmentShader: `void main() { gl_FragColor = vec4(0.4, 0.2, 0.1, 1.0); }`
+});
+
+for(let i = -8; i <= 8; i++) {
+    const plank = new THREE.Mesh(new THREE.BoxGeometry(45, 1, 3), bridgeMat);
+    plank.position.z = i * 4;
+    bridgeGroup.add(plank);
 }
-bridge.position.set(0, -0.5, 0);
-scene.add(bridge);
+bridgeGroup.position.y = 0;
+scene.add(bridgeGroup);
 
 // --- PERSONAJE ---
 const player = new THREE.Group();
-const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.8, 1.5), new THREE.MeshBasicMaterial({color: 0xffd700}));
+const body = new THREE.Mesh(new THREE.CapsuleGeometry(1, 2), new THREE.MeshBasicMaterial({color: 0xffcc00}));
 player.add(body);
-player.position.set(30, 2, 50);
+player.position.set(40, 5, 100);
 scene.add(player);
 
-// --- FUNCIÓN DE ALTURA DEL SUELO ---
-function getY(x, z) {
-    if (Math.abs(x) < 18) {
-        // Si está en el puente
-        if (z > -25 && z < 25) return -0.5; 
-        return -4; // Si no, está en el agua
+// --- CONTROLES ---
+const keys = {};
+window.addEventListener('keydown', (e) => keys[e.key.toLowerCase()] = true);
+window.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+
+function getTerrainHeight(x, z) {
+    if (Math.abs(x) < 20) {
+        if (z > -35 && z < 35) return 0.5; // Altura del puente
+        return -5; // Altura del fondo del río
     }
-    return Math.sin(x * 0.08) * Math.cos(z * 0.08) * 4;
+    return Math.sin(x * 0.1) * Math.cos(z * 0.1) * 5;
 }
 
-// --- LOOP ---
 function animate() {
     requestAnimationFrame(animate);
-    const dt = clock.getDelta();
-    waterMat.uniforms.uTime.value = clock.elapsedTime;
+    const dt = 0.15;
+    waterMat.uniforms.uTime.value += 0.05;
 
-    const speed = 25 * dt;
-    let nextX = player.position.x;
-    let nextZ = player.position.z;
+    let nX = player.position.x;
+    let nZ = player.position.z;
 
-    if (keys['w'] || keys['arrowup']) nextZ -= speed;
-    if (keys['s'] || keys['arrowdown']) nextZ += speed;
-    if (keys['a'] || keys['arrowleft']) nextX -= speed;
-    if (keys['d'] || keys['arrowright']) nextX += speed;
+    if (keys['w'] || keys['arrowup']) nZ -= 1.5;
+    if (keys['s'] || keys['arrowdown']) nZ += 1.5;
+    if (keys['a'] || keys['arrowleft']) nX -= 1.5;
+    if (keys['d'] || keys['arrowright']) nX += 1.5;
 
-    const targetY = getY(nextX, nextZ);
+    // 2. LIMITES DEL MAPA (Clamping)
+    nX = Math.max(-WORLD_WIDTH/2 + 5, Math.min(WORLD_WIDTH/2 - 5, nX));
+    nZ = Math.max(-WORLD_DEPTH/2 + 5, Math.min(WORLD_DEPTH/2 - 5, nZ));
+
+    const h = getTerrainHeight(nX, nZ);
     
-    // Solo permitir movimiento si no se cae al agua (o si está en el puente)
-    if (targetY > -3.5) {
-        player.position.x = nextX;
-        player.position.z = nextZ;
-        player.position.y = targetY + 1.5;
+    // Solo permitir caminar si no es agua profunda
+    if (h > -4) {
+        player.position.x = nX;
+        player.position.z = nZ;
+        player.position.y = h + 2;
     }
 
+    // Cámara sigue al jugador
     camera.position.x += (player.position.x - camera.position.x) * 0.1;
-    camera.position.z += (player.position.z + 50 - camera.position.z) * 0.1;
+    camera.position.z += (player.position.z + 60 - camera.position.z) * 0.1;
     camera.lookAt(player.position.x, player.position.y, player.position.z - 10);
 
     renderer.render(scene, camera);
 }
 animate();
-
 </script>
 </body>
 </html>
