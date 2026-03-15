@@ -2,12 +2,12 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Bosque del Niño con Palo - Versión 7.4 (Comic Style - Optimizado iPad)</title>
+<title>Bosque del Niño con Palo - Versión 8.0 (Cel-Shading + Niño completo)</title>
 <style>
   body { margin:0; overflow:hidden; background:#000; font-family:Arial, sans-serif; }
   canvas { display:block; }
   #ui {
-    position:absolute; top:10px; left:10px; color:#fff; background:rgba(0,0,0,0.75);
+    position:absolute; top:10px; left:10px; color:#fff; background:rgba(0,0,0,0.7);
     padding:12px 16px; border-radius:8px; pointer-events:none; user-select:none;
     font-size:14px; z-index:10; line-height:1.4;
   }
@@ -16,33 +16,42 @@
 <body>
 
 <div id="ui">
-  WASD o flechas • Versión 7.4 Comic Style (iPad fix)<br>
-  - Terreno verde cartoon con hierba dibujada<br>
-  - Sombras suaves<br>
-  - Puente cruzable cerca<br>
-  - Estilo dibujado a mano
+  WASD o flechas • Versión 8.0 Cel-Shading (Wind Waker style)<br>
+  - Niño completo con cuerpo, brazos, piernas, cabeza, pelo y palo<br>
+  - Piernas y brazos se mueven al caminar<br>
+  - Terreno y sombras estilo Switch<br>
+  - Cámara rolling suave
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/pixi.js@7/dist/pixi.min.js"></script>
 <script>
 // ================================================
-// Versión 7.4 - Optimizada para iPad + Comic Style
+// Versión 8.0 - Niño completo + Cel-Shading
 // ================================================
 
 const app = new PIXI.Application({
   width: window.innerWidth,
   height: window.innerHeight,
-  backgroundColor: 0x88bbff, // cielo cartoon
+  backgroundColor: 0x88ccff,
   antialias: true,
   resolution: window.devicePixelRatio || 1,
-  autoDensity: true
+  autoDensity: true,
+  clearBeforeRender: true
 });
 document.body.appendChild(app.view);
 
 window.addEventListener('resize', () => app.renderer.resize(window.innerWidth, window.innerHeight));
 
-// Jugador
-const player = { x: -300, y: -100, size: 18, speed: 3.3, angle: 0, bob: 0 };
+// Jugador completo
+const player = {
+  x: -420,
+  y: -80,
+  size: 16,
+  speed: 3.2,
+  angle: 0,
+  walkCycle: 0,   // para animación de piernas
+  bob: 0
+};
 
 // Controles
 const keys = {};
@@ -53,17 +62,91 @@ window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
 const world = new PIXI.Container();
 app.stage.addChild(world);
 
-// Terreno (un solo Graphics grande - clave para iPad)
-const terrain = new PIXI.Graphics();
-world.addChild(terrain);
+// Filtro cel-shading (outline negro)
+const outlineFilter = new PIXI.filters.OutlineFilter(3, 0x000000, 1);
+world.filters = [outlineFilter];
 
 // Cámara
 let camera = { x: 0, y: 0 };
 
 // ================================================
-// Update
+// Función para dibujar el niño completo
 // ================================================
-function update(delta) {
+function drawBoy(px, py, angle, walkCycle) {
+  const boy = new PIXI.Graphics();
+
+  // SOMBRA (siempre primero)
+  boy.beginFill(0x000000, 0.25);
+  boy.drawEllipse(px + 2, py + 18, 14, 6);
+  boy.endFill();
+
+  // PIERNAS (se mueven con walkCycle)
+  const legAngle = Math.sin(walkCycle) * 0.3;
+  boy.lineStyle(5, 0x3a2a1f, 1);
+  boy.moveTo(px - 5, py + 8);
+  boy.lineTo(px - 5 + Math.sin(legAngle)*4, py + 22);
+  boy.moveTo(px + 5, py + 8);
+  boy.lineTo(px + 5 - Math.sin(legAngle)*4, py + 22);
+
+  // CUERPO (túnica verde como Link niño)
+  boy.beginFill(0x4a9c3a);
+  boy.drawRect(px - 9, py - 6, 18, 18);
+  boy.endFill();
+
+  // BRAZO IZQUIERDO
+  boy.lineStyle(4, 0xffddaa, 1);
+  boy.moveTo(px - 8, py + 2);
+  boy.lineTo(px - 18, py + 10);
+
+  // BRAZO DERECHO (sosteniendo palo)
+  boy.lineStyle(4, 0xffddaa, 1);
+  boy.moveTo(px + 8, py + 2);
+  boy.lineTo(px + 18, py + 6);
+
+  // MANO DERECHA
+  boy.beginFill(0xffddaa);
+  boy.drawCircle(px + 18, py + 6, 4);
+  boy.endFill();
+
+  // CUELLO
+  boy.beginFill(0xffddaa);
+  boy.drawRect(px - 4, py - 10, 8, 6);
+  boy.endFill();
+
+  // CABEZA
+  boy.beginFill(0xffddaa);
+  boy.drawCircle(px, py - 18, 9);
+  boy.endFill();
+
+  // PELO (estilo Wind Waker)
+  boy.beginFill(0x3a2a1f);
+  boy.drawCircle(px - 5, py - 24, 6);
+  boy.drawCircle(px + 5, py - 24, 6);
+  boy.drawCircle(px, py - 27, 7);
+  boy.endFill();
+
+  // OJOS
+  boy.beginFill(0x000000);
+  boy.drawCircle(px - 3, py - 19, 2);
+  boy.drawCircle(px + 3, py - 19, 2);
+  boy.endFill();
+
+  // PALO (madera con punta)
+  boy.lineStyle(6, 0x8b5a2b, 1);
+  boy.moveTo(px + 18, py + 6);
+  boy.lineTo(px + 18 + Math.cos(angle) * 28, py + 6 + Math.sin(angle) * 28);
+  boy.lineStyle(3, 0x3a2a1f, 1);
+  boy.moveTo(px + 18 + Math.cos(angle) * 26, py + 6 + Math.sin(angle) * 26);
+  boy.lineTo(px + 18 + Math.cos(angle) * 30, py + 6 + Math.sin(angle) * 30);
+
+  return boy;
+}
+
+// ================================================
+// Update + Render
+// ================================================
+app.ticker.add((delta) => {
+  // Movimiento
   let dx = 0, dy = 0;
   if (keys['w'] || keys['arrowup']) dy -= 1;
   if (keys['s'] || keys['arrowdown']) dy += 1;
@@ -74,95 +157,58 @@ function update(delta) {
     const len = Math.hypot(dx, dy) || 1;
     dx /= len; dy /= len;
     player.angle = Math.atan2(dy, dx);
-    player.bob = Math.sin(Date.now()/120) * 1.5;
+    player.walkCycle += delta * 0.3;
   }
 
   player.x += dx * player.speed * delta;
   player.y += dy * player.speed * delta;
 
-  // Cámara suave
-  camera.x += (player.x - app.screen.width/2 - camera.x) * 0.12;
-  camera.y += (player.y - app.screen.height/2 - camera.y) * 0.12;
+  // Cámara rolling suave
+  camera.x += (player.x - app.screen.width / 2 - camera.x) * 0.15;
+  camera.y += (player.y - app.screen.height / 2 - camera.y) * 0.15;
   world.position.set(-camera.x, -camera.y);
-}
 
-// ================================================
-// Render (una sola vez por frame, muy ligero)
-// ================================================
-app.ticker.add((delta) => {
-  update(delta);
+  world.removeChildren();
 
-  // Limpiar terreno
-  terrain.clear();
+  // Terreno hierba cartoon (mejorada, menos repetitiva)
+  const tileSize = 32;
+  const startX = Math.floor(camera.x / tileSize) - 8;
+  const endX = Math.floor((camera.x + app.screen.width) / tileSize) + 8;
+  const startY = Math.floor(camera.y / tileSize) - 8;
+  const endY = Math.floor((camera.y + app.screen.height) / tileSize) + 8;
 
-  const tileSize = 48;
-  const startX = Math.floor(camera.x / tileSize) - 2;
-  const endX   = Math.floor((camera.x + app.screen.width) / tileSize) + 3;
-  const startY = Math.floor(camera.y / tileSize) - 2;
-  const endY   = Math.floor((camera.y + app.screen.height) / tileSize) + 3;
-
-  // Suelo base verde cartoon
-  terrain.beginFill(0x6bc14a);
-  terrain.drawRect(camera.x - 50, camera.y - 50, app.screen.width + 100, app.screen.height + 100);
-  terrain.endFill();
-
-  // Hierba estilo comic (rayitas dibujadas)
-  terrain.lineStyle(3, 0x4a9c38, 0.9);
   for (let tx = startX; tx <= endX; tx++) {
     for (let ty = startY; ty <= endY; ty++) {
       const wx = tx * tileSize;
       const wy = ty * tileSize;
+      const grass = new PIXI.Graphics();
+      grass.beginFill(0x7ac142);
+      grass.drawRect(wx, wy, tileSize, tileSize);
+      grass.endFill();
+      grass.lineStyle(2, 0x5aa832, 0.6);
       for (let i = 0; i < 6; i++) {
-        const ox = wx + 8 + i*6;
-        const oy = wy + 30 + Math.random()*12;
-        terrain.moveTo(ox, oy);
-        terrain.lineTo(ox + (Math.random()-0.5)*5, oy - 18 - Math.random()*10);
+        const ox = wx + 4 + i*4;
+        const oy = wy + 8 + Math.random()*16;
+        grass.moveTo(ox, oy);
+        grass.lineTo(ox + (Math.random()-0.5)*6, oy - 14);
       }
+      world.addChild(grass);
     }
   }
 
-  // Puente (cerca del spawn para que lo veas rápido)
-  const bridge = new PIXI.Graphics();
-  bridge.beginFill(0x8b5a2b);
-  bridge.drawRoundedRect(400, 300, 180, 70, 12);
-  bridge.endFill();
-  bridge.lineStyle(6, 0x5c3f1f);
-  bridge.drawRoundedRect(400, 300, 180, 70, 12);
-  world.addChild(bridge);
-
-  // Árbol cartoon grande cerca
+  // Árbol y casa de ejemplo
   const tree = new PIXI.Graphics();
-  tree.beginFill(0x4a2f1a);
-  tree.drawRect(-800, -400, 32, 90);
-  tree.endFill();
-  tree.beginFill(0x2e6a2e);
-  tree.drawEllipse(-784, -380, 55, 45);
-  tree.drawEllipse(-820, -430, 42, 38);
-  tree.drawEllipse(-750, -410, 48, 40);
+  tree.beginFill(0x5a3f2a); tree.drawRect(-1400, -1350, 20, 50); tree.endFill();
+  tree.beginFill(0x3a6a3a);
+  tree.drawCircle(-1400, -1350 - 35, 32);
+  tree.drawCircle(-1400 - 18, -1350 - 48, 24);
+  tree.drawCircle(-1400 + 18, -1350 - 42, 26);
   tree.endFill();
   world.addChild(tree);
 
-  // Jugador con sombra y bob
-  const shadow = new PIXI.Graphics();
-  shadow.beginFill(0x000000, 0.35);
-  shadow.drawEllipse(player.x + 4, player.y + 22, player.size * 1.1, 8);
-  shadow.endFill();
-  world.addChild(shadow);
-
-  const playerGfx = new PIXI.Graphics();
-  playerGfx.beginFill(0xffe0b0);
-  playerGfx.drawEllipse(player.x, player.y + player.bob, player.size, player.size * 0.95);
-  playerGfx.endFill();
-  playerGfx.lineStyle(3, 0x000000);
-  playerGfx.drawEllipse(player.x, player.y + player.bob, player.size, player.size * 0.95); // borde comic
-  world.addChild(playerGfx);
-
-  // Palo
-  const stick = new PIXI.Graphics();
-  stick.lineStyle(7, 0x8b5a2b);
-  stick.moveTo(player.x, player.y + player.bob);
-  stick.lineTo(player.x + Math.cos(player.angle)*32, player.y + player.bob + Math.sin(player.angle)*32);
-  world.addChild(stick);
+  // Niño completo
+  const boyGfx = drawBoy(player.x, player.y, player.angle, player.walkCycle);
+  world.addChild(boyGfx);
 });
 </script>
 </body>
